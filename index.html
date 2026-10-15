@@ -687,14 +687,24 @@
 		var ctx = c.getContext("2d");
 		c.width = c.height = 350;
 		var poly1 = new Polygon([new Vec2(20,280),new Vec2(330,280),new Vec2(330,400),new Vec2(20,400)],new Vec2(),new Vec2(0,0),Infinity,1);
+		poly1.friction = 0.3;//without friction on both sides nothing can make a body spin
 		bodies.push(poly1);
+		var spawnBox = false;
 		setInterval(function(){
 			var pos = new Vec2(10+Math.random()*390,100);
-			var radius = 5+Math.random()*20;
-			var circle = new Circle(pos,new Vec2(),new Vec2(0,200),radius,radius/2,1);
-			circle.restitution = 0.8;
-			circle.friction = 0;
-			bodies.push(circle);
+			var size = 5+Math.random()*20;
+			var body;
+			if(spawnBox){
+				body = new Polygon([new Vec2(pos.x-size,pos.y-size),new Vec2(pos.x+size,pos.y-size),new Vec2(pos.x+size,pos.y+size),new Vec2(pos.x-size,pos.y+size)],new Vec2(),new Vec2(0,200),size/2,1);
+				body.setAngle(Math.random()*Math.PI);
+				body.restitution = 0.2;
+			}else{
+				body = new Circle(pos,new Vec2(),new Vec2(0,200),size,size/2,1);
+				body.restitution = 0.8;
+			}
+			body.friction = 0.3;
+			bodies.push(body);
+			spawnBox = !spawnBox;
 		},600);
 
 		var lastFrameTime = 0;
