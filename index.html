@@ -211,23 +211,37 @@
 				this.rotate();
 			}
 			this.updateCenter = function(){
-				center = new Vec2();
+				//area centroid (the vertex average is wrong for irregular polygons)
+				var sum = new Vec2();
+				var area2 = 0;
 				for(var i=0;i<vertices0.length;i++){
-					center = center.add(vertices0[i]);
+					var a = vertices0[i];
+					var b = vertices0[(i+1)%vertices0.length];
+					var cross = a.cross(b);
+					area2 += cross;
+					sum = sum.add(a.add(b).scale(cross));
 				}
-				center = center.scale(1/vertices0.length);
+				center = sum.scale(1/(3*area2));
 			}
 			this.updateCenter();
 			this.updateInertia = function(){
-				var radius = vertices[0].subtract(center).length();/*approximation*/
-				inertia = 0.5*mass*radius*radius;
+				//exact inertia of a convex polygon around its centroid
+				var num = 0;
+				var den = 0;
+				for(var i=0;i<vertices0.length;i++){
+					var a = vertices0[i].subtract(center);
+					var b = vertices0[(i+1)%vertices0.length].subtract(center);
+					var cross = Math.abs(a.cross(b));
+					num += cross*(a.dot(a)+a.dot(b)+b.dot(b));
+					den += cross;
+				}
+				inertia = mass*num/(6*den);
 			}
 			this.updateInertia();
 			this.rotate = function(){
+				//counterclockwise, same direction as the angular velocity in resolveCollision
 				for(var i=0;i<vertices0.length;i++){
-					var x = ((vertices0[i].x-center.x)*Math.cos(angle)) + ((vertices0[i].y-center.y)*Math.sin(angle)) + center.x;
-					var y = ((vertices0[i].y-center.y)*Math.cos(angle)) - ((vertices0[i].x-center.x)*Math.sin(angle)) + center.y;
-					vertices[i] = new Vec2(x,y);
+					vertices[i] = vertices0[i].rotate(center,angle);
 				}
 			}
 			this.rotate();
@@ -390,69 +404,17 @@
 
 			},
 			polygonPolygon: function (b1,b2){
-				//find Axis of Separation for both rectangle
+				//find Axis of Separation for both polygons
 				var ci1 = findAxisLeastPenetration(b1,b2);
-				if (ci1) {
-					var ci2 = findAxisLeastPenetration(b2,b1);
-					if (ci2) {
-						var parallel = (ci1.normal.x===ci2.normal.x && ci1.normal.y===ci2.normal.y) || (ci1.normal.x===-ci2.normal.x && ci1.normal.y===-ci2.normal.y);
-						var normVec,proj1,proj2,proj3,proj4,min1,min2,max1,max2,overlap;
-						if(parallel){
-							var normVec = ci1.v2.subtract(ci1.v1).normalize();
-							normVec = new Vec2(Math.abs(normVec.x),Math.abs(normVec.y));
-							var proj1 = ci1.v1.dot(normVec);
-							var proj2 = ci1.v2.dot(normVec);
-							var proj3 = ci2.v1.dot(normVec);
-							var proj4 = ci2.v2.dot(normVec);
-						/*	ctx.fillText(proj1.toFixed(2),20,20);
-							ctx.fillText(proj2.toFixed(2),80,20);
-							ctx.fillText(proj3.toFixed(2),150,20);
-							ctx.fillText(proj4.toFixed(2),200,20);*/
-							var min1 = Math.min(proj1,proj2);
-							var max1 = Math.max(proj1,proj2);
-							var min2 = Math.min(proj3,proj4);
-							var max2 = Math.max(proj3,proj4);
-							var overlap;
-							if(min1<=min2 && max1>=max2){
-								overlap = (max2+min2)/2;
-							}else if(min1>min2 && max1<max2){
-								overlap = (max1+min1)/2;
-							}else if(min1>=min2 && min1<=max2 && max1>max2){
-								overlap = (max2+min1)/2;
-							}else if(min1<min2 && min2<=max1 && max1<=max2){
-								overlap = (max1+min2)/2;
-							}
-						}
-						//choose the shorter normal as the normal
-						if(ci1.ci.depth < ci2.ci.depth) {
-							if(parallel){
-								var t = scale(overlap,min1,max1,0,1);
-								var point;
-								if(min1 === proj1){
-									point = new Vec2(lerp(ci1.v1.x,ci1.v2.x,t),lerp(ci1.v1.y,ci1.v2.y,t))
-								}else{
-									point = new Vec2(lerp(ci1.v2.x,ci1.v1.x,t),lerp(ci1.v2.y,ci1.v1.y,t))
-								}
-								return new CollisionInfo(ci1.ci.depth,ci1.ci.normal,point);
-							}
-							var depthVec = new Vec2(ci1.ci.normal.x*ci1.ci.depth,ci1.ci.normal.y*ci1.ci.depth);
-							return new CollisionInfo(ci1.ci.depth,ci1.ci.normal,ci1.ci.start.subtract(depthVec));
-						}else{
-							if(parallel){
-								var t = scale(overlap,min2,max2,0,1);
-								var point;
-								if(min2 === proj3){
-									point = new Vec2(lerp(ci2.v1.x,ci2.v2.x,t),lerp(ci2.v1.y,ci2.v2.y,t))
-								}else{
-									point = new Vec2(lerp(ci2.v2.x,ci2.v1.x,t),lerp(ci2.v2.y,ci2.v1.y,t))
-								}
-								return new CollisionInfo(ci2.ci.depth,ci2.ci.normal.scale(-1),point);
-							}
-							return new CollisionInfo(ci2.ci.depth,ci2.ci.normal.scale(-1),ci2.ci.start);
-						}
-					}
+				if (!ci1) {return null;}
+				var ci2 = findAxisLeastPenetration(b2,b1);
+				if (!ci2) {return null;}
+				//the face with the shorter penetration is the reference face
+				if(ci1.ci.depth < ci2.ci.depth) {
+					return new CollisionInfo(ci1.ci.depth,ci1.normal,findContactPoint(ci1,b2.getVertices()));
 				}
-				return null;
+				var point = findContactPoint(ci2,b1.getVertices());
+				return new CollisionInfo(ci2.ci.depth,ci2.normal.scale(-1),point.add(ci2.normal.scale(ci2.ci.depth)));
 				function findSupportPoint(polyVertex, dir, ptOnEdge) {
 					//the longest project length
 					var vToEdge;
@@ -512,11 +474,50 @@
 					}
 					return null;
 				}
-				function scale (number, inMin, inMax, outMin, outMax) {
-					return (number - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
+				function findContactPoint(ref, incVertices){
+					//one support vertex as contact gives a resting polygon a false torque,
+					//so clip the incident edge to the reference face and average its touching points
+					var contactSlop = 0.25;//a point this close above the face still touches, so a flat polygon gets a centered contact
+					var n = ref.normal;
+					var best = Infinity;
+					var i1 = 0;
+					for(var i=0;i<incVertices.length;i++){
+						//incident edge: the edge that faces most against the reference normal
+						var e = incVertices[(i+1)%incVertices.length].subtract(incVertices[i]).normalize();
+						var facing = new Vec2(e.y,-e.x).dot(n);
+						if(facing < best){
+							best = facing;
+							i1 = i;
+						}
+					}
+					var points = [incVertices[i1],incVertices[(i1+1)%incVertices.length]];
+					var t = ref.v2.subtract(ref.v1).normalize();
+					points = clip(points,t,ref.v1.dot(t));
+					points = clip(points,t.scale(-1),-ref.v2.dot(t));
+					var sum = new Vec2();
+					var count = 0;
+					for(var i=0;i<points.length;i++){
+						if(ref.v1.subtract(points[i]).dot(n) > -contactSlop){
+							sum = sum.add(points[i]);
+							count++;
+						}
+					}
+					if(count === 0){
+						return ref.ci.start.subtract(n.scale(ref.ci.depth));//support point
+					}
+					return sum.scale(1/count);
 				}
-				function lerp (start, end, amt){
-					return (1-amt)*start+amt*end;
+				function clip(points, dir, offset){
+					//keep the part of the segment where p.dot(dir) >= offset
+					var out = [];
+					var d = points.map(function(p){return p.dot(dir) - offset;});
+					for(var i=0;i<points.length;i++){
+						if(d[i] >= 0){out.push(points[i]);}
+					}
+					if(points.length === 2 && d[0]*d[1] < 0){
+						out.push(points[0].add(points[1].subtract(points[0]).scale(d[0]/(d[0]-d[1]))));
+					}
+					return out;
 				}
 			},
 			circlePolygon: function(b1,b2,invert){
@@ -536,7 +537,7 @@
 				var vertices = poly.getVertices();
 				var normals = poly.getFacesNormal();
 				// Step A: Compute the nearest edge
-				for(i=0;i<vertices.length;++i){
+				for(var i=0;i<vertices.length;++i){
 					//find the nearest face for center of circle
 					var v = circ.position.subtract(vertices[i]);
 					var projection = v.dot(normals[i]);
@@ -619,87 +620,50 @@
 			b2.move(correctionAmount.scale(b2.getInvMass()));
 		}
 		function resolveCollision(b1,b2,ci){
-			var linearResolve = true;
-			var rotationalResolve = true;
 			if (b1.getInvMass() === 0 && b2.getInvMass() === 0){
 				return;
 			}
 			var n = ci.normal;
 			var newFriction = Math.min(b1.friction, b2.friction);
 			var newRestitution = Math.min(b1.restitution,b2.restitution);
-			var v1 = b1.velocity;
-			var v2 = b2.velocity;
+			var start = ci.start.scale(b2.getInvMass() / (b1.getInvMass() + b2.getInvMass()));
+			var end = ci.end.scale(b1.getInvMass() / (b1.getInvMass() + b2.getInvMass()));
+			var p = start.add(end);
+			//r is vector from center of shape to collision point
+			var r1 = p.subtract(b1.getType() === "Circle" ? b1.position : b1.getCenter());
+			var r2 = p.subtract(b2.getType() === "Circle" ? b2.position : b2.getCenter());
+			var invI1 = 1 / b1.getInertia();
+			var invI2 = 1 / b2.getInertia();
+			//velocity of the collision point: V + mAngularVelocity cross R
+			var v1 = b1.velocity.add(new Vec2(-1 * b1.angularVelocity * r1.y, b1.angularVelocity * r1.x));
+			var v2 = b2.velocity.add(new Vec2(-1 * b2.angularVelocity * r2.y, b2.angularVelocity * r2.x));
 			var relativeVelocity = v2.subtract(v1);
 			// Relative velocity in normal direction
 			var rVelocityInNormal = relativeVelocity.dot(n);
 			// if objects moving apart ignore
 			if (rVelocityInNormal > 0){return;}
-			var tangent = relativeVelocity.subtract(n.scale(relativeVelocity.dot(n)));
-			tangent = tangent.normalize().scale(-1);
-			if(linearResolve){
-				// Calc impulse scalar
-				var jN = -(1 + newRestitution) * rVelocityInNormal;
-				jN /= (b1.getInvMass() + b2.getInvMass());
-				//impulse is in direction of normal ( from s1 to s2)
-				var impulse = n.scale(jN);
-				// impulse = F dt = m * v
-				// v = impulse / m
-				b1.velocity = b1.velocity.subtract(impulse.scale(b1.getInvMass()));
-				b2.velocity = b2.velocity.add(impulse.scale(b2.getInvMass()));
-				var jT = -(1 + newRestitution) * relativeVelocity.dot(tangent) * newFriction;
-				jT /= (b1.getInvMass() + b2.getInvMass());
-				// friction should be less than force in normal direction
-				if (jT > jN) jT = jN;
-				//impulse is from s1 to s2 (in opposite direction of velocity)
-				impulse = tangent.scale(jT);
-				b1.velocity = b1.velocity.subtract(impulse.scale(b1.getInvMass()));
-				b2.velocity = b2.velocity.add(impulse.scale(b2.getInvMass()));
-			}
-			if(rotationalResolve){
-
-				var start = ci.start.scale(b2.getInvMass() / (b1.getInvMass() + b2.getInvMass()));
-				var end = ci.end.scale(b1.getInvMass() / (b1.getInvMass() + b2.getInvMass()));
-				var p = start.add(end);
-				
-				var b1Center, b2Center;
-				if(b1.getType() === "Circle"){
-					b1Center = b1.position;
-				}else{
-					b1Center = b1.getCenter();
-				}
-				if(b2.getType() === "Circle"){
-					b2Center = b2.position;
-				}else{
-					b2Center = b2.getCenter();
-				}
-				//r is vector from center of shape to collision point
-				var r1 = p.subtract(b1Center);
-				var r2 = p.subtract(b2Center);
-				
-				//newV = V + mAngularVelocity cross R
-				var v1 = b1.velocity.add(new Vec2(-1 * b1.angularVelocity * r1.y, b1.angularVelocity * r1.x));
-				var v2 = b2.velocity.add(new Vec2(-1 * b2.angularVelocity * r2.y, b2.angularVelocity * r2.x));
-				var relativeVelocity = v2.subtract(v1);
-				// Relative velocity in normal direction
-				var rVelocityInNormal = relativeVelocity.dot(n);
-				//R cross N
-				var R1crossN = r1.cross(n);
-				var R2crossN = r2.cross(n);
-				// Calc impulse scalar
-				// Reference: http://www.myphysicslab.com/collision.html
-				var jN = -(1 + newRestitution) * rVelocityInNormal;
-				jN /= (b1.getInvMass() + b2.getInvMass() + R1crossN * R1crossN / b1.getInertia() + R2crossN * R2crossN / b2.getInertia());
-				b1.angularVelocity -= R1crossN * jN / b1.getInertia();
-				b2.angularVelocity += R2crossN * jN / b2.getInertia();
-				//relativeVelocity.dot(tangent) should less than 0
-				tangent = tangent.normalize().scale(-1);
-				var R1crossT = r1.cross(tangent);
-				var R2crossT = r2.cross(tangent);
-				var jT = -(1 + newRestitution) * relativeVelocity.dot(tangent);
-				jT /= (b1.getInvMass() + b2.getInvMass() + R1crossT * R1crossT / b1.getInertia() +R2crossT * R2crossT / b2.getInertia());
-				b1.angularVelocity -= R1crossT * jT / b1.getInertia();
-				b2.angularVelocity += R2crossT * jT / b2.getInertia();
-			}
+			//one impulse changes both linear and angular velocity, a split impulse adds energy
+			// Reference: http://www.myphysicslab.com/collision.html
+			var R1crossN = r1.cross(n);
+			var R2crossN = r2.cross(n);
+			var jN = -(1 + newRestitution) * rVelocityInNormal;
+			jN /= (b1.getInvMass() + b2.getInvMass() + R1crossN * R1crossN * invI1 + R2crossN * R2crossN * invI2);
+			applyImpulse(b1,b2,n.scale(jN),r1,r2,invI1,invI2);
+			//friction is against the sliding direction and at most friction * normal impulse
+			var tangent = relativeVelocity.subtract(n.scale(rVelocityInNormal)).normalize();
+			var R1crossT = r1.cross(tangent);
+			var R2crossT = r2.cross(tangent);
+			var jT = -relativeVelocity.dot(tangent);
+			jT /= (b1.getInvMass() + b2.getInvMass() + R1crossT * R1crossT * invI1 + R2crossT * R2crossT * invI2);
+			jT = Math.max(jT, -jN * newFriction);
+			applyImpulse(b1,b2,tangent.scale(jT),r1,r2,invI1,invI2);
+		}
+		function applyImpulse(b1,b2,impulse,r1,r2,invI1,invI2){
+			//impulse is from b1 to b2
+			b1.velocity = b1.velocity.subtract(impulse.scale(b1.getInvMass()));
+			b2.velocity = b2.velocity.add(impulse.scale(b2.getInvMass()));
+			b1.angularVelocity -= r1.cross(impulse) * invI1;
+			b2.angularVelocity += r2.cross(impulse) * invI2;
 		}
 		function drawCi(ci){
 			ctx.save();
@@ -738,7 +702,8 @@
 			ctx.fillStyle = "rgba(255,255,255,0.05)";
 			ctx.fillRect(0,0,c.width,c.height);
 			ctx.fillStyle = "black";
-			var dt = (time - lastFrameTime) / 1000;
+			//clamp so the first frame or a hidden tab does not make bodies jump through each other
+			var dt = Math.min((time - lastFrameTime) / 1000, 1/30);
 			lastFrameTime = time;
 			ctx.clearRect(0,0,c.width,c.height);
 			updateBodies(dt);
@@ -746,10 +711,8 @@
 				bodies[i].draw(ctx);
 			}
 			for(var i=0;i<bodies.length;i++){
-				if(bodies[i].getType() === "Circle" && bodies[i].position.y>500){
-					bodies.splice(i,1);i--;
-				}
-				if(bodies[i].getType() === "Polygon" && bodies[i].getCenter().y>500){
+				var y = bodies[i].getType() === "Circle" ? bodies[i].position.y : bodies[i].getCenter().y;
+				if(y>500){
 					bodies.splice(i,1);i--;
 				}
 			}
