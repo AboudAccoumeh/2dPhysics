@@ -67,6 +67,14 @@ class Polygon extends RigidBody {
 			new Vec2(center.x - w, center.y + h),
 		], options);
 	}
+	//triangle, pentagon, hexagon...: vertices on a circle, clockwise on screen
+	static regular(center, radius, sides, options) {
+		const vertices = [];
+		for (let i = 0; i < sides; i++) {
+			vertices.push(center.add(new Vec2(radius, 0).rotate(2 * Math.PI * i / sides)));
+		}
+		return new Polygon(vertices, options);
+	}
 	//area centroid and inertia/mass of a convex polygon, from its triangle fan
 	static massProperties(vertices) {
 		let area2 = 0;

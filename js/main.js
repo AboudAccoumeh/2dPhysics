@@ -10,19 +10,20 @@ bindSlider("restitution", (value) => (settings.restitution = value));
 
 world.add(Polygon.box(new Vec2(175, 340), 310, 120, { mass: Infinity, ...settings }));
 
-let spawnBox = false;
+const shapes = [
+	(position, size, options) => new Circle(position, size, options),
+	(position, size, options) => Polygon.box(position, 2 * size, 2 * size, options),
+	(position, size, options) => Polygon.regular(position, size, 3, options),
+	(position, size, options) => Polygon.regular(position, size, 5, options),
+	(position, size, options) => Polygon.regular(position, size, 6, options),
+];
 setInterval(() => {
 	const position = new Vec2(10 + Math.random() * (canvas.width - 20), 100);
 	const size = 5 + Math.random() * 20;
-	const options = { mass: size / 2, ...settings };
-	const body = spawnBox
-		? Polygon.box(position, 2 * size, 2 * size, options)
-		: new Circle(position, size, options);
-	if (spawnBox) {
-		body.rotate(Math.random() * Math.PI);
-	}
+	const makeShape = shapes[Math.floor(Math.random() * shapes.length)];
+	const body = makeShape(position, size, { mass: size / 2, ...settings });
+	body.rotate(Math.random() * Math.PI);//the circle shows it with its radius line
 	world.add(body);
-	spawnBox = !spawnBox;
 }, 600);
 
 //shows the value next to the slider and copies it to every body
